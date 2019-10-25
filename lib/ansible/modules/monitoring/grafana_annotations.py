@@ -250,9 +250,9 @@ class GrafanaAnnotationService(object):
         if annotation.get("time_end", None):
             params.append("to=%s" % annotation.get("time_end"))
         if annotation.get("dashboard_id", None):
-            params.append("dashboard_id=%s" % annotation.get("dashboard_id"))
-        if annotation.get("panel_id", None):
-            params.append("panel_id=%s" % annotation.get("panel_id"))
+            params.append("dashboardId=%s" % annotation.get("dashboard_id"))
+        if annotation.get("panel_id") is not None:
+            params.append("panelId=%s" % annotation.get("panel_id"))
 
         params.append("type=annotation")
 
