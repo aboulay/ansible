@@ -19,6 +19,8 @@
 
 from __future__ import absolute_import, division, print_function
 
+from ansible.module_utils.urls import fetch_url, basic_auth_header, url_argument_spec
+
 ANSIBLE_METADATA = {
     'status': ['preview'],
     'supported_by': 'community',
@@ -149,9 +151,29 @@ import json
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.urls import fetch_url, url_argument_spec, basic_auth_header
+from ansible.module_utils.six.moves.urllib.parse import urlencode
 
 __metaclass__ = type
 
+class GrafanaAnnotation(object):
+
+    def __init__(self, text, time, tags=None, dashboard_id=None, panel_id=None, time_end=None):
+        ## Mandatory
+        self.text = text
+        self.time = time
+        ## Optionnal
+        self.tags = tags
+        self.dashboard_id = dashboard_id
+        self.panel_id = panel_id
+        self.time_end = time_end
+
+    def as_dict(self):
+        return dict(text=self.text,
+                    time=self.time,
+                    tags=self.tags,
+                    dashboard_id=self.dashboard_id,
+                    panel_id=self.panel_id,
+                    time_end=self.time_end)
 
 class GrafanaAnnotationInterface(object):
 
@@ -165,6 +187,39 @@ class GrafanaAnnotationInterface(object):
             self.headers["Authorization"] = basic_auth_header(module.params['url_username'], module.params['url_password'])
         # }}}
         self.grafana_url = module.params.get("url")
+
+    def create_annotation(self, annotation):
+        url = "/api/annotations"
+        response = self._send_request(url, data=annotation.as_dict(), headers=self.headers, method="POST")
+        return response
+
+    def get_annotation(self, annotation):
+        url = "/api/annotations?" + self._build_search_uri_params(annotation)
+        response = self._send_request(url, headers=self.headers, method="GET")
+        if not response.get("totalCount") <= 1:
+            raise AssertionError("Expected 1 teams, got %d" % response["totalCount"])
+
+        if len(response.get("teams")) == 0:
+            return None
+        return response.get("teams")[0]
+
+    def _build_search_uri_params(self, annotation):
+        params = []
+        annotation = annotation.as_dict()
+        tags = annotation.get("tags", None)
+        if tags:
+            for tag in tags:
+                params.append("tags=%s" % urlencode(tag))
+        if annotation.get('time', None):
+            params.append("from=%s" % annotation.get('time'))
+        if annotation.get('timeEnd', None):
+            params.append("to=%s" % annotation.get('timeEnd'))
+        else:
+            params.append("to=%s" % (int(time.time()) * 1000))
+
+        if params:
+            url_params = "%s" % ('&'.join(params))
+        return url_params
 
     def _send_request(self, url, data=None, headers=None, method="GET"):
         if data is not None:
@@ -184,22 +239,6 @@ class GrafanaAnnotationInterface(object):
         elif status_code == 200:
             return self._module.from_json(resp.read())
         self._module.fail_json(failed=True, msg="Grafana Annotations API answered with HTTP %d" % status_code)
-
-    def create_annotation(self, time, tags, text, dashboard_id, panel_id, time_end):
-        url = "/api/annotations"
-        annotation = dict(time=time, tags=tags, text=text, dashboard_id=dashboard_id, panel_id=panel_id, time_end=time_end)
-        response = self._send_request(url, data=annotation, headers=self.headers, method="POST")
-        return response
-
-    def get_annotation(self, time):
-        url = "/api/annotations?from={time}&to=&type=annotation".format(time=time)
-        response = self._send_request(url, headers=self.headers, method="GET")
-        if not response.get("totalCount") <= 1:
-            raise AssertionError("Expected 1 teams, got %d" % response["totalCount"])
-
-        if len(response.get("teams")) == 0:
-            return None
-        return response.get("teams")[0]
 
 
 def setup_module_object():
@@ -244,6 +283,10 @@ def main():
     panel_id = module.params['panel_id']
     time_end = module.params['time_end']
     tags = module.params['tags']
+
+    annotation = GrafanaAnnotation(text, time, tags, dashboard_id, panel_id, time_end)
+
+    ####
 
     grafana_iface = GrafanaAnnotationInterface(module)
 
