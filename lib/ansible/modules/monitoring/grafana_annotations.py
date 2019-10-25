@@ -175,7 +175,9 @@ class GrafanaAnnotation(object):
                     panel_id=self.panel_id,
                     time_end=self.time_end)
 
-class GrafanaAnnotationInterface(object):
+
+
+class GrafanaAnnotationService(object):
 
     def __init__(self, module):
         self._module = module
@@ -196,12 +198,12 @@ class GrafanaAnnotationInterface(object):
     def get_annotation(self, annotation):
         url = "/api/annotations?" + self._build_search_uri_params(annotation)
         response = self._send_request(url, headers=self.headers, method="GET")
-        if not response.get("totalCount") <= 1:
-            raise AssertionError("Expected 1 teams, got %d" % response["totalCount"])
+        if len(response) > 1:
+            raise AssertionError("Expected 1 annotation, got %d" % len(response))
 
-        if len(response.get("teams")) == 0:
+        if len(response) == 0:
             return None
-        return response.get("teams")[0]
+        return response[0]
 
     def _build_search_uri_params(self, annotation):
         params = []
@@ -210,15 +212,19 @@ class GrafanaAnnotationInterface(object):
         if tags:
             for tag in tags:
                 params.append("tags=%s" % urlencode(tag))
-        if annotation.get('time', None):
-            params.append("from=%s" % annotation.get('time'))
-        if annotation.get('timeEnd', None):
-            params.append("to=%s" % annotation.get('timeEnd'))
-        else:
-            params.append("to=%s" % (int(time.time()) * 1000))
+        if annotation.get("time", None):
+            params.append("from=%s" % annotation.get("time"))
+        if annotation.get("time_end", None):
+            params.append("to=%s" % annotation.get("time_end"))
+        if annotation.get("dashboard_id", None):
+            params.append("dashboard_id=%s" % annotation.get("dashboard_id"))
+        if annotation.get("panel_id", None):
+            params.append("panel_id=%s" % annotation.get("panel_id"))
+
+        params.append("type=annotation")
 
         if params:
-            url_params = "%s" % ('&'.join(params))
+            url_params = "%s" % '&'.join(params)
         return url_params
 
     def _send_request(self, url, data=None, headers=None, method="GET"):
@@ -284,37 +290,33 @@ def main():
     time_end = module.params['time_end']
     tags = module.params['tags']
 
-    annotation = GrafanaAnnotation(text, time, tags, dashboard_id, panel_id, time_end)
+    annotation_from_params = GrafanaAnnotation(text, time, tags, dashboard_id, panel_id, time_end)
 
     ####
 
-    grafana_iface = GrafanaAnnotationInterface(module)
+    grafana_service = GrafanaAnnotationService(module)
 
     changed = False
     if state == 'present':
-        team = grafana_iface.get_team(name)
-        if team is None:
-            new_team = grafana_iface.create_team(name, email)
-            team = grafana_iface.get_team(name)
+        annotation = grafana_service.get_annotation(annotation_from_params)
+        if annotation is None: # create
+            new_annotation = grafana_service.create_annotation(annotation_from_params)
+            annotation = grafana_service.get_annotation(new_annotation)
             changed = True
-        if members is not None:
-            cur_members = grafana_iface.get_team_members(team.get("id"))
+        if members is not None: # update
+            cur_members = grafana_service.get_team_members(team.get("id"))
             plan = diff_members(members, cur_members)
             for member in plan.get("to_add"):
-                grafana_iface.add_team_member(team.get("id"), member)
+                grafana_service.add_team_member(team.get("id"), member)
                 changed = True
-            if enforce_members:
-                for member in plan.get("to_del"):
-                    grafana_iface.delete_team_member(team.get("id"), member)
-                    changed = True
-            team = grafana_iface.get_team(name)
-        team['members'] = grafana_iface.get_team_members(team.get("id"))
+            team = grafana_service.get_team(name)
+        team['members'] = grafana_service.get_team_members(team.get("id"))
         module.exit_json(failed=False, changed=changed, team=team)
     elif state == 'absent':
-        team = grafana_iface.get_team(name)
+        team = grafana_service.get_team(name)
         if team is None:
             module.exit_json(failed=False, changed=False, message="No team found")
-        result = grafana_iface.delete_team(team.get("id"))
+        result = grafana_service.delete_team(team.get("id"))
         module.exit_json(failed=False, changed=True, message=result.get("message"))
 
 
