@@ -157,7 +157,7 @@ __metaclass__ = type
 
 class GrafanaAnnotation(object):
 
-    def __init__(self, text, time, tags=None, dashboard_id=None, panel_id=None, time_end=None):
+    def __init__(self, text, time, tags=None, dashboard_id=None, panel_id=None, time_end=None, annotation_id=None):
         ## Mandatory
         self.text = text
         self.time = time
@@ -168,6 +168,7 @@ class GrafanaAnnotation(object):
         self.time_end = time_end
         if time_end is None:
             self.time_end = time
+        self.id = annotation_id
 
     def as_dict(self):
         return dict(text=self.text,
@@ -175,8 +176,18 @@ class GrafanaAnnotation(object):
                     tags=self.tags,
                     dashboard_id=self.dashboard_id,
                     panel_id=self.panel_id,
-                    time_end=self.time_end)
-    
+                    time_end=self.time_end,
+                    id=self.id)
+
+    def as_api_format(self):
+        return dict(text=self.text,
+                    time=self.time,
+                    tags=self.tags,
+                    dashboardId=self.dashboard_id,
+                    panelId=self.panel_id,
+                    timeEnd=self.time_end,
+                    id=self.id)
+
     @property
     def json(self):
         return json.dumps(self.as_dict())
@@ -198,13 +209,11 @@ class GrafanaAnnotationService(object):
 
     def create_annotation(self, annotation):
         url = "/api/annotations"
-        response = self._send_request(url, data=annotation.as_dict(), headers=self.headers, method="POST")
+        response = self._send_request(url, data=annotation.as_api_format(), headers=self.headers, method="POST")
         return response
 
     def get_annotation(self, annotation):
         url = "/api/annotations?" + self._build_search_uri_params(annotation)
-
-        
         response = self._send_request(url, headers=self.headers, method="GET")
         if len(response) > 1:
             raise AssertionError("Expected 1 annotation, got %d" % len(response))
@@ -213,8 +222,21 @@ class GrafanaAnnotationService(object):
             return None
         return self._create_annotation_object(response[0])
 
+    def delete_annotation(self, annotation):
+      url = "/api/annotations/%d" % annotation.id
+      response = self._send_request(url, headers=self.headers, method="DELETE")
+      return response
+
     def _create_annotation_object(self, response):
-        return GrafanaAnnotation(response["text"], response["time"], response["tags"], response["dashboardId"], response["panelId"], response["timeEnd"])
+        return GrafanaAnnotation(
+          response["text"],
+          response["time"],
+          response["tags"],
+          response["dashboardId"],
+          response["panelId"],
+          response["timeEnd"],
+          response["id"]
+        )
 
     def _build_search_uri_params(self, annotation):
         params = []
@@ -282,7 +304,6 @@ argument_spec.update(
     panel_id=dict(type='int', required=False),
     time_end=dict(type='int', required=False),
     tags=dict(type='list', required=False),
-
     url=dict(type='str', required=True),
     grafana_api_key=dict(type='str', no_log=True),
     url_username=dict(aliases=['grafana_user'], default='admin'),
@@ -322,12 +343,12 @@ def main():
         #        changed = True
         #    team = grafana_service.get_team(name)
         module.exit_json(failed=False, changed=changed, annotation=annotation.json)
-    #elif state == 'absent':
-    #    team = grafana_service.get_team(name)
-    #    if team is None:
-    #        module.exit_json(failed=False, changed=False, message="No team found")
-    #    result = grafana_service.delete_team(team.get("id"))
-    #    module.exit_json(failed=False, changed=True, message=result.get("message"))
+    elif state == 'absent':
+       annotation = grafana_service.get_annotation(annotation_from_params)
+       if annotation is None:
+           module.exit_json(failed=False, changed=False, message="No annotation found")
+       result = grafana_service.delete_annotation(annotation)
+       module.exit_json(failed=False, changed=True, message=result.get("message"))
 
 
 #def diff_members(target, current):
