@@ -191,15 +191,15 @@ class GrafanaAnnotationInterface(object):
         response = self._send_request(url, data=annotation, headers=self.headers, method="POST")
         return response
 
-#    def get_team(self, name):
-#        url = "/api/teams/search?name={team}".format(team=name)
-#        response = self._send_request(url, headers=self.headers, method="GET")
-#        if not response.get("totalCount") <= 1:
-#            raise AssertionError("Expected 1 teams, got %d" % response["totalCount"])
-#
-#        if len(response.get("teams")) == 0:
-#            return None
-#        return response.get("teams")[0]
+    def get_annotation(self, time):
+        url = "/api/annotations?from={time}&to=&type=annotation".format(time=time)
+        response = self._send_request(url, headers=self.headers, method="GET")
+        if not response.get("totalCount") <= 1:
+            raise AssertionError("Expected 1 teams, got %d" % response["totalCount"])
+
+        if len(response.get("teams")) == 0:
+            return None
+        return response.get("teams")[0]
 
 
 def setup_module_object():
@@ -229,7 +229,6 @@ argument_spec.update(
 
     url=dict(type='str', required=True),
     grafana_api_key=dict(type='str', no_log=True),
-    enforce_members=dict(type='bool', default=False),
     url_username=dict(aliases=['grafana_user'], default='admin'),
     url_password=dict(aliases=['grafana_password'], default='admin', no_log=True)
 )
@@ -239,10 +238,12 @@ def main():
 
     module = setup_module_object()
     state = module.params['state']
-    name = module.params['name']
-    email = module.params['email']
-    members = module.params['members']
-    enforce_members = module.params['enforce_members']
+    text = module.params['text']
+    time = module.params['time']
+    dashboard_id = module.params['dashboard_id']
+    panel_id = module.params['panel_id']
+    time_end = module.params['time_end']
+    tags = module.params['tags']
 
     grafana_iface = GrafanaAnnotationInterface(module)
 
