@@ -151,7 +151,7 @@ import json
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.urls import fetch_url, url_argument_spec, basic_auth_header
-from ansible.module_utils.six.moves.urllib.parse import urlencode
+from ansible.module_utils.six.moves.urllib.parse import quote_plus
 
 __metaclass__ = type
 
@@ -166,6 +166,8 @@ class GrafanaAnnotation(object):
         self.dashboard_id = dashboard_id
         self.panel_id = panel_id
         self.time_end = time_end
+        if time_end is None:
+            self.time_end = time
 
     def as_dict(self):
         return dict(text=self.text,
@@ -174,6 +176,10 @@ class GrafanaAnnotation(object):
                     dashboard_id=self.dashboard_id,
                     panel_id=self.panel_id,
                     time_end=self.time_end)
+    
+    @property
+    def json(self):
+        return json.dumps(self.as_dict())
 
 
 
@@ -197,13 +203,18 @@ class GrafanaAnnotationService(object):
 
     def get_annotation(self, annotation):
         url = "/api/annotations?" + self._build_search_uri_params(annotation)
+
+        
         response = self._send_request(url, headers=self.headers, method="GET")
         if len(response) > 1:
             raise AssertionError("Expected 1 annotation, got %d" % len(response))
 
         if len(response) == 0:
             return None
-        return response[0]
+        return self._create_annotation_object(response[0])
+
+    def _create_annotation_object(self, response):
+        return GrafanaAnnotation(response["text"], response["time"], response["tags"], response["dashboardId"], response["panelId"], response["timeEnd"])
 
     def _build_search_uri_params(self, annotation):
         params = []
@@ -211,7 +222,7 @@ class GrafanaAnnotationService(object):
         tags = annotation.get("tags", None)
         if tags:
             for tag in tags:
-                params.append("tags=%s" % urlencode(tag))
+                params.append("tags=%s" % quote_plus(tag))
         if annotation.get("time", None):
             params.append("from=%s" % annotation.get("time"))
         if annotation.get("time_end", None):
@@ -300,35 +311,34 @@ def main():
     if state == 'present':
         annotation = grafana_service.get_annotation(annotation_from_params)
         if annotation is None: # create
-            new_annotation = grafana_service.create_annotation(annotation_from_params)
-            annotation = grafana_service.get_annotation(new_annotation)
+            grafana_service.create_annotation(annotation_from_params)
+            annotation = grafana_service.get_annotation(annotation_from_params)
             changed = True
-        if members is not None: # update
-            cur_members = grafana_service.get_team_members(team.get("id"))
-            plan = diff_members(members, cur_members)
-            for member in plan.get("to_add"):
-                grafana_service.add_team_member(team.get("id"), member)
-                changed = True
-            team = grafana_service.get_team(name)
-        team['members'] = grafana_service.get_team_members(team.get("id"))
-        module.exit_json(failed=False, changed=changed, team=team)
-    elif state == 'absent':
-        team = grafana_service.get_team(name)
-        if team is None:
-            module.exit_json(failed=False, changed=False, message="No team found")
-        result = grafana_service.delete_team(team.get("id"))
-        module.exit_json(failed=False, changed=True, message=result.get("message"))
+        #if members is not None: # update
+        #    cur_members = grafana_service.get_team_members(team.get("id"))
+        #    plan = diff_members(members, cur_members)
+        #    for member in plan.get("to_add"):
+        #        grafana_service.add_team_member(team.get("id"), member)
+        #        changed = True
+        #    team = grafana_service.get_team(name)
+        module.exit_json(failed=False, changed=changed, annotation=annotation.json)
+    #elif state == 'absent':
+    #    team = grafana_service.get_team(name)
+    #    if team is None:
+    #        module.exit_json(failed=False, changed=False, message="No team found")
+    #    result = grafana_service.delete_team(team.get("id"))
+    #    module.exit_json(failed=False, changed=True, message=result.get("message"))
 
 
-def diff_members(target, current):
-    diff = {"to_del": [], "to_add": []}
-    for member in target:
-        if member not in current:
-            diff["to_add"].append(member)
-    for member in current:
-        if member not in target:
-            diff["to_del"].append(member)
-    return diff
+#def diff_members(target, current):
+#    diff = {"to_del": [], "to_add": []}
+#    for member in target:
+#        if member not in current:
+#            diff["to_add"].append(member)
+#    for member in current:
+#        if member not in target:
+#            diff["to_del"].append(member)
+#    return diff
 
 
 if __name__ == '__main__':
